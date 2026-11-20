@@ -14,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { Trash2, Plus, ShieldCheck, LogOut, Pencil } from "lucide-react";
 import { adminApi, fetchProducts, fetchStores } from "../lib/api";
+import { StoresPanel, OffersPanel } from "../components/admin/AffiliatePanels";
 
 export default function AdminPage() {
     const [token, setToken] = useState(() => localStorage.getItem("tally-admin") || "");
@@ -22,12 +23,14 @@ export default function AdminPage() {
     const [stores, setStores] = useState([]);
     const [clicks, setClicks] = useState([]);
     const [editing, setEditing] = useState(null);
+    const [refreshKey, setRefreshKey] = useState(0);
 
     const api = adminApi(token);
 
     const refresh = async () => {
         const [p, s] = await Promise.all([fetchProducts({ limit: 100 }), fetchStores()]);
         setProducts(p); setStores(s);
+        setRefreshKey((k) => k + 1);
         try { setClicks(await api.getClicks()); } catch { /* ignore */ }
     };
 
@@ -84,7 +87,7 @@ export default function AdminPage() {
             <div className="flex items-center justify-between mb-8">
                 <div>
                     <h1 className="font-display text-3xl font-bold tracking-tight">Admin Panel</h1>
-                    <p className="text-sm text-muted-foreground">Manage products, stores, offers and view clicks.</p>
+                    <p className="text-sm text-muted-foreground">Manage products, affiliate links, stores and clicks.</p>
                 </div>
                 <Button
                     variant="outline"
@@ -100,7 +103,7 @@ export default function AdminPage() {
                 <TabsList className="rounded-full">
                     <TabsTrigger value="products" data-testid="tab-products">Products ({products.length})</TabsTrigger>
                     <TabsTrigger value="stores" data-testid="tab-stores">Stores ({stores.length})</TabsTrigger>
-                    <TabsTrigger value="offers" data-testid="tab-offers">Offers</TabsTrigger>
+                    <TabsTrigger value="offers" data-testid="tab-offers">Affiliate links</TabsTrigger>
                     <TabsTrigger value="clicks" data-testid="tab-clicks">Clicks ({clicks.length})</TabsTrigger>
                 </TabsList>
 
@@ -150,39 +153,24 @@ export default function AdminPage() {
                 </TabsContent>
 
                 <TabsContent value="stores" className="mt-6 space-y-6">
-                    <StoreForm api={api} onCreated={refresh} />
-                    <div className="glass rounded-3xl overflow-hidden">
-                        <table className="w-full text-sm">
-                            <thead className="bg-secondary/40 text-xs uppercase tracking-widest">
-                                <tr>
-                                    <th className="text-left px-5 py-3">Name</th>
-                                    <th className="text-left px-5 py-3">Country</th>
-                                    <th className="text-left px-5 py-3">Rating</th>
-                                    <th className="text-right px-5 py-3"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {stores.map(s => (
-                                    <tr key={s.id} className="border-t border-border">
-                                        <td className="px-5 py-3 font-medium">{s.name}</td>
-                                        <td className="px-5 py-3">{s.country}</td>
-                                        <td className="px-5 py-3">{s.rating}</td>
-                                        <td className="px-5 py-3 text-right">
-                                            <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                onClick={async () => { await api.deleteStore(s.id); toast.success("Deleted"); refresh(); }}
-                                            ><Trash2 className="w-4 h-4" /></Button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <StoresPanel
+                        api={api}
+                        stores={stores}
+                        onChanged={refresh}
+                        onDelete={async (st) => { await api.deleteStore(st.id); toast.success(`${st.name} deleted`); refresh(); }}
+                    />
+                    <details className="rounded-lg border border-border bg-card">
+                        <summary className="cursor-pointer px-5 py-3 text-sm font-medium">Add a store</summary>
+                        <div className="border-t border-border"><StoreForm api={api} onCreated={refresh} /></div>
+                    </details>
                 </TabsContent>
 
                 <TabsContent value="offers" className="mt-6 space-y-6">
-                    <OfferForm api={api} stores={stores} products={products} onCreated={refresh} />
+                    <OffersPanel api={api} stores={stores} refreshKey={refreshKey} onChanged={refresh} />
+                    <details className="rounded-lg border border-border bg-card">
+                        <summary className="cursor-pointer px-5 py-3 text-sm font-medium">Add an offer</summary>
+                        <div className="border-t border-border"><OfferForm api={api} stores={stores} products={products} onCreated={refresh} /></div>
+                    </details>
                 </TabsContent>
 
                 <TabsContent value="clicks" className="mt-6">
@@ -365,11 +353,11 @@ const StoreForm = ({ api, onCreated }) => {
         onCreated();
     };
     return (
-        <form onSubmit={onSubmit} className="glass rounded-3xl p-6 grid sm:grid-cols-2 gap-4">
+        <form onSubmit={onSubmit} className="p-5 grid sm:grid-cols-2 gap-4">
             <div><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></div>
             <div><Label>Country</Label><Input value={form.country} onChange={e => setForm({ ...form, country: e.target.value })} required /></div>
             <div><Label>Rating</Label><Input type="number" step="0.1" value={form.rating} onChange={e => setForm({ ...form, rating: e.target.value })} /></div>
-            <div><Label>Affiliate base URL</Label><Input value={form.affiliate_base} onChange={e => setForm({ ...form, affiliate_base: e.target.value })} /></div>
+            <div><Label>Website</Label><Input value={form.affiliate_base} onChange={e => setForm({ ...form, affiliate_base: e.target.value })} placeholder="https://www.example.com" /></div>
             <div className="sm:col-span-2 flex justify-end">
                 <Button type="submit" className="btn-gradient rounded-full"><Plus className="w-4 h-4 mr-1" /> Add store</Button>
             </div>
@@ -381,17 +369,23 @@ const OfferForm = ({ api, stores, products, onCreated }) => {
     const [form, setForm] = useState({ product_id: "", store_id: "", price: "", delivery_fee: "0", affiliate_url: "" });
     const onSubmit = async (e) => {
         e.preventDefault();
-        await api.createOffer({
-            ...form,
-            price: Number(form.price),
-            delivery_fee: Number(form.delivery_fee),
-        });
+        try {
+            await api.createOffer({
+                ...form,
+                price: Number(form.price),
+                delivery_fee: Number(form.delivery_fee),
+            });
+        } catch (err) {
+            const d = err.response?.data?.detail;
+            toast.error(Array.isArray(d) ? d[0]?.msg?.replace("Value error, ", "") : d || "Couldn't add the offer");
+            return;
+        }
         toast.success("Offer created");
         setForm({ product_id: "", store_id: "", price: "", delivery_fee: "0", affiliate_url: "" });
         onCreated();
     };
     return (
-        <form onSubmit={onSubmit} className="glass rounded-3xl p-6 grid sm:grid-cols-2 gap-4" data-testid="offer-form">
+        <form onSubmit={onSubmit} className="p-5 grid sm:grid-cols-2 gap-4" data-testid="offer-form">
             <div>
                 <Label>Product</Label>
                 <Select value={form.product_id} onValueChange={v => setForm({ ...form, product_id: v })}>
@@ -412,7 +406,7 @@ const OfferForm = ({ api, stores, products, onCreated }) => {
             </div>
             <div><Label>Price</Label><Input type="number" step="0.01" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} required /></div>
             <div><Label>Delivery fee</Label><Input type="number" step="0.01" value={form.delivery_fee} onChange={e => setForm({ ...form, delivery_fee: e.target.value })} /></div>
-            <div className="sm:col-span-2"><Label>Affiliate URL</Label><Input value={form.affiliate_url} onChange={e => setForm({ ...form, affiliate_url: e.target.value })} required /></div>
+            <div className="sm:col-span-2"><Label>Affiliate link (optional)</Label><Input value={form.affiliate_url} onChange={e => setForm({ ...form, affiliate_url: e.target.value })} placeholder="Leave empty to use the store's search page" /></div>
             <div className="sm:col-span-2 flex justify-end">
                 <Button type="submit" className="btn-gradient rounded-full"><Plus className="w-4 h-4 mr-1" /> Add offer</Button>
             </div>

@@ -6,8 +6,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional
+from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, urlencode
 import uuid
 from datetime import datetime, timezone
 
@@ -26,6 +27,30 @@ api_router = APIRouter(prefix="/api")
 
 
 # ---------- Models ----------
+def _check_http_url(v: Optional[str]) -> Optional[str]:
+    """Only allow plain http(s) links, so nothing like javascript: can reach a Buy button."""
+    if v is None:
+        return v
+    v = v.strip()
+    if v == "":
+        return None
+    if urlsplit(v).scheme not in ("http", "https"):
+        raise ValueError("Link must start with http:// or https://")
+    return v
+
+
+def _check_tracking_param(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    v = v.strip().lstrip("?&")
+    if v == "":
+        return None
+    pairs = parse_qsl(v, keep_blank_values=False)
+    if not pairs:
+        raise ValueError("Tracking ID must look like key=value, e.g. tag=yourid-20")
+    return urlencode(pairs)
+
+
 class Store(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -34,6 +59,10 @@ class Store(BaseModel):
     logo: Optional[str] = None
     rating: float = 4.5
     affiliate_base: Optional[str] = None
+    # Store search page with {q} where the product name goes. Used when an offer has no affiliate link yet.
+    search_url: Optional[str] = None
+    # Affiliate tracking parameter added to every outgoing link for this store, e.g. "tag=yourid-20".
+    tracking_param: Optional[str] = None
 
 
 class StoreCreate(BaseModel):
@@ -42,6 +71,36 @@ class StoreCreate(BaseModel):
     logo: Optional[str] = None
     rating: float = 4.5
     affiliate_base: Optional[str] = None
+    search_url: Optional[str] = None
+    tracking_param: Optional[str] = None
+
+    @field_validator("search_url")
+    @classmethod
+    def check_search_url(cls, v):
+        return _check_http_url(v)
+
+    @field_validator("tracking_param")
+    @classmethod
+    def check_tracking(cls, v):
+        return _check_tracking_param(v)
+
+
+class StoreUpdate(BaseModel):
+    name: Optional[str] = None
+    country: Optional[str] = None
+    rating: Optional[float] = None
+    search_url: Optional[str] = None
+    tracking_param: Optional[str] = None
+
+    @field_validator("search_url")
+    @classmethod
+    def check_search_url(cls, v):
+        return _check_http_url(v)
+
+    @field_validator("tracking_param")
+    @classmethod
+    def check_tracking(cls, v):
+        return _check_tracking_param(v)
 
 
 class Offer(BaseModel):
@@ -53,6 +112,8 @@ class Offer(BaseModel):
     delivery_fee: float = 0.0
     currency: str = "USD"
     affiliate_url: str
+    # True once a real affiliate link from the store's program has been added for this offer.
+    is_affiliate: bool = False
     in_stock: bool = True
 
 
@@ -62,8 +123,26 @@ class OfferCreate(BaseModel):
     price: float
     delivery_fee: float = 0.0
     currency: str = "USD"
-    affiliate_url: str
+    affiliate_url: Optional[str] = None  # leave empty to use the store's search page
     in_stock: bool = True
+
+    @field_validator("affiliate_url")
+    @classmethod
+    def check_url(cls, v):
+        return _check_http_url(v)
+
+
+class OfferUpdate(BaseModel):
+    price: Optional[float] = None
+    delivery_fee: Optional[float] = None
+    in_stock: Optional[bool] = None
+    # Send "" to remove the affiliate link and fall back to the store's search page.
+    affiliate_url: Optional[str] = None
+
+    @field_validator("affiliate_url")
+    @classmethod
+    def check_url(cls, v):
+        return "" if v is not None and v.strip() == "" else _check_http_url(v)
 
 
 class Product(BaseModel):
@@ -130,6 +209,45 @@ class ProductWithOffers(BaseModel):
 def check_admin(token: Optional[str]):
     if not ADMIN_TOKEN or token != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ---------- Outgoing links ----------
+DEFAULT_SEARCH_URLS = {
+    "Amazon": "https://www.amazon.com/s?k={q}",
+    "AliExpress": "https://www.aliexpress.com/w/wholesale.html?SearchText={q}",
+    "Daraz": "https://www.daraz.pk/catalog/?q={q}",
+    "Daraz BD": "https://www.daraz.com.bd/catalog/?q={q}",
+    "Shopee": "https://shopee.sg/search?keyword={q}",
+    "Lazada": "https://www.lazada.com.my/catalog/?q={q}",
+}
+
+
+def store_search_link(store: dict, product_title: str) -> str:
+    template = store.get("search_url") or DEFAULT_SEARCH_URLS.get(store.get("name", ""))
+    if template and "{q}" in template:
+        return template.replace("{q}", quote_plus(product_title))
+    base = (store.get("affiliate_base") or "https://www.google.com").rstrip("/")
+    return f"{base}/search?q={quote_plus(product_title)}"
+
+
+def with_tracking(url: str, tracking_param: Optional[str]) -> str:
+    """Add the store's affiliate tracking parameter unless the link already carries that key."""
+    if not tracking_param:
+        return url
+    parts = urlsplit(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    existing = {k for k, _ in query}
+    query += [(k, v) for k, v in parse_qsl(tracking_param) if k not in existing]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+async def outbound_url(offer: dict) -> str:
+    store = await db.stores.find_one({"id": offer["store_id"]}, {"_id": 0}) or {}
+    url = offer.get("affiliate_url")
+    if not url:
+        product = await db.products.find_one({"id": offer["product_id"]}, {"_id": 0, "title": 1}) or {}
+        url = store_search_link(store, product.get("title", ""))
+    return with_tracking(url, store.get("tracking_param"))
 
 
 # ---------- Helpers ----------
@@ -282,7 +400,7 @@ async def redirect_to_store(offer_id: str):
     )
     await db.clicks.insert_one(click.model_dump())
 
-    return RedirectResponse(url=offer["affiliate_url"], status_code=302)
+    return RedirectResponse(url=await outbound_url(offer), status_code=302)
 
 
 @api_router.post("/track-click")
@@ -296,7 +414,7 @@ async def track_click(offer_id: str):
         store_id=offer["store_id"],
     )
     await db.clicks.insert_one(click.model_dump())
-    return {"ok": True, "affiliate_url": offer["affiliate_url"]}
+    return {"ok": True, "affiliate_url": await outbound_url(offer)}
 
 
 # ---------- Admin routes ----------
@@ -346,6 +464,18 @@ async def admin_create_store(s: StoreCreate, x_admin_token: Optional[str] = Head
     return store
 
 
+@api_router.patch("/admin/stores/{store_id}")
+async def admin_update_store(store_id: str, s: StoreUpdate, x_admin_token: Optional[str] = Header(None)):
+    check_admin(x_admin_token)
+    update = {k: v for k, v in s.model_dump(exclude_unset=True).items()}
+    if not update:
+        raise HTTPException(400, "No fields to update")
+    res = await db.stores.update_one({"id": store_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Store not found")
+    return await db.stores.find_one({"id": store_id}, {"_id": 0})
+
+
 @api_router.delete("/admin/stores/{store_id}")
 async def admin_delete_store(store_id: str, x_admin_token: Optional[str] = Header(None)):
     check_admin(x_admin_token)
@@ -356,9 +486,62 @@ async def admin_delete_store(store_id: str, x_admin_token: Optional[str] = Heade
 @api_router.post("/admin/offers")
 async def admin_create_offer(o: OfferCreate, x_admin_token: Optional[str] = Header(None)):
     check_admin(x_admin_token)
-    offer = Offer(**o.model_dump())
+    data = o.model_dump()
+    if data.get("affiliate_url"):
+        data["is_affiliate"] = True
+    else:
+        store = await db.stores.find_one({"id": o.store_id}, {"_id": 0}) or {}
+        product = await db.products.find_one({"id": o.product_id}, {"_id": 0}) or {}
+        data["affiliate_url"] = store_search_link(store, product.get("title", ""))
+        data["is_affiliate"] = False
+    offer = Offer(**data)
     await db.offers.insert_one(offer.model_dump())
     return offer
+
+
+@api_router.get("/admin/offers")
+async def admin_list_offers(x_admin_token: Optional[str] = Header(None)):
+    check_admin(x_admin_token)
+    offers = await db.offers.find({}, {"_id": 0}).to_list(2000)
+    products = {p["id"]: p async for p in db.products.find({}, {"_id": 0, "id": 1, "title": 1, "slug": 1})}
+    stores = {s["id"]: s async for s in db.stores.find({}, {"_id": 0})}
+    result = []
+    for o in offers:
+        store = stores.get(o["store_id"], {})
+        result.append({
+            **o,
+            "is_affiliate": bool(o.get("is_affiliate")),
+            "product_title": products.get(o["product_id"], {}).get("title", "Unknown"),
+            "product_slug": products.get(o["product_id"], {}).get("slug"),
+            "store_name": store.get("name", "Unknown"),
+            "store_country": store.get("country", ""),
+            "final_url": with_tracking(o["affiliate_url"], store.get("tracking_param")),
+            "total": round(o["price"] + o.get("delivery_fee", 0.0), 2),
+        })
+    result.sort(key=lambda x: (x["product_title"], x["total"]))
+    return result
+
+
+@api_router.patch("/admin/offers/{offer_id}")
+async def admin_update_offer(offer_id: str, o: OfferUpdate, x_admin_token: Optional[str] = Header(None)):
+    check_admin(x_admin_token)
+    offer = await db.offers.find_one({"id": offer_id}, {"_id": 0})
+    if not offer:
+        raise HTTPException(404, "Offer not found")
+    update = {k: v for k, v in o.model_dump(exclude_unset=True).items() if k != "affiliate_url" and v is not None}
+    if "affiliate_url" in o.model_fields_set:
+        if o.affiliate_url:
+            update["affiliate_url"] = o.affiliate_url
+            update["is_affiliate"] = True
+        else:
+            store = await db.stores.find_one({"id": offer["store_id"]}, {"_id": 0}) or {}
+            product = await db.products.find_one({"id": offer["product_id"]}, {"_id": 0}) or {}
+            update["affiliate_url"] = store_search_link(store, product.get("title", ""))
+            update["is_affiliate"] = False
+    if not update:
+        raise HTTPException(400, "No fields to update")
+    await db.offers.update_one({"id": offer_id}, {"$set": update})
+    return await db.offers.find_one({"id": offer_id}, {"_id": 0})
 
 
 @api_router.delete("/admin/offers/{offer_id}")
@@ -510,7 +693,7 @@ async def seed_data():
             variation = price_variations[slot % len(price_variations)]
             price = round(base_price * (1 + variation), 2)
             delivery = delivery_slots[slot % len(delivery_slots)]
-            affiliate_url = f"{s.affiliate_base}/dp/{product.slug}?ref=tally"
+            affiliate_url = store_search_link(s.model_dump(), product.title)
             offer = Offer(
                 product_id=product.id,
                 store_id=s.id,
@@ -537,6 +720,21 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
+async def migrate_links():
+    """Fill in store search pages and replace the old placeholder /dp/ links that went nowhere."""
+    stores = {s["id"]: s async for s in db.stores.find({}, {"_id": 0})}
+    for s in stores.values():
+        if not s.get("search_url") and s.get("name") in DEFAULT_SEARCH_URLS:
+            s["search_url"] = DEFAULT_SEARCH_URLS[s["name"]]
+            await db.stores.update_one({"id": s["id"]}, {"$set": {"search_url": s["search_url"]}})
+    async for o in db.offers.find({"affiliate_url": {"$regex": r"/dp/.*ref=(pricexa|tally)"}}, {"_id": 0}):
+        product = await db.products.find_one({"id": o["product_id"]}, {"_id": 0, "title": 1}) or {}
+        await db.offers.update_one(
+            {"id": o["id"]},
+            {"$set": {"affiliate_url": store_search_link(stores.get(o["store_id"], {}), product.get("title", "")), "is_affiliate": False}},
+        )
+
+
 # Seed lazily on the first API request: serverless hosts (Vercel) don't always run startup hooks.
 _seeded = False
 
@@ -547,6 +745,7 @@ async def ensure_seeded(request, call_next):
     if not _seeded and request.url.path.startswith("/api"):
         try:
             await seed_data()
+            await migrate_links()
             _seeded = True
         except Exception:
             logger.exception("Seeding failed")

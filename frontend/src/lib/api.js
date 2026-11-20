@@ -21,8 +21,11 @@ export const adminApi = (token) => {
         patchProduct: (id, data) => c.patch(`/admin/products/${id}`, data).then(r => r.data),
         deleteProduct: (id) => c.delete(`/admin/products/${id}`).then(r => r.data),
         createStore: (data) => c.post("/admin/stores", data).then(r => r.data),
+        updateStore: (id, data) => c.patch(`/admin/stores/${id}`, data).then(r => r.data),
         deleteStore: (id) => c.delete(`/admin/stores/${id}`).then(r => r.data),
         createOffer: (data) => c.post("/admin/offers", data).then(r => r.data),
+        listOffers: () => c.get("/admin/offers").then(r => r.data),
+        updateOffer: (id, data) => c.patch(`/admin/offers/${id}`, data).then(r => r.data),
         deleteOffer: (id) => c.delete(`/admin/offers/${id}`).then(r => r.data),
         getClicks: () => c.get("/admin/clicks").then(r => r.data),
     };
