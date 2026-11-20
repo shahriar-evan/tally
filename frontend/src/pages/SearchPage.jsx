@@ -10,6 +10,7 @@ import {
 } from "../components/ui/select";
 import { fetchProducts, fetchCategories, fetchStores } from "../lib/api";
 import { useCurrency } from "../context/CurrencyContext";
+import { useSeo } from "../hooks/useSeo";
 
 export default function SearchPage() {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -20,6 +21,19 @@ export default function SearchPage() {
     const [categories, setCategories] = useState([]);
     const [stores, setStores] = useState([]);
     const [showMobileFilters, setShowMobileFilters] = useState(false);
+
+    // Category pages are worth indexing; free-text searches and filter combinations aren't.
+    const urlQ = searchParams.get("q");
+    const urlCategory = searchParams.get("category");
+    const categoryName = urlCategory ? urlCategory.charAt(0).toUpperCase() + urlCategory.slice(1) : null;
+    useSeo({
+        title: urlQ ? `Prices for "${urlQ}"` : categoryName ? `${categoryName} price comparison` : "Compare prices",
+        description: categoryName && !urlQ
+            ? `Compare ${categoryName.toLowerCase()} prices across Amazon, AliExpress, Daraz, Shopee and Lazada, with delivery included in every total.`
+            : undefined,
+        path: categoryName && !urlQ ? `/search?category=${urlCategory}` : "/search",
+        noindex: !!urlQ || [...searchParams.keys()].some((k) => k !== "category"),
+    });
 
     const [q, setQ] = useState(searchParams.get("q") || "");
     const [category, setCategory] = useState(searchParams.get("category") || "all");

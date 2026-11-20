@@ -6,6 +6,8 @@ import { Badge } from "../components/ui/badge";
 import { ProductCard } from "../components/ProductCard";
 import { fetchProduct, trackClick, API } from "../lib/api";
 import { useCurrency } from "../context/CurrencyContext";
+import { useSeo } from "../hooks/useSeo";
+import { SITE_URL } from "../lib/site";
 
 export default function ProductDetailPage() {
     const { slug } = useParams();
@@ -15,8 +17,46 @@ export default function ProductDetailPage() {
 
     useEffect(() => {
         setLoading(true);
-        fetchProduct(slug).then(setProduct).finally(() => setLoading(false));
+        fetchProduct(slug).then(setProduct).catch(() => setProduct(null)).finally(() => setLoading(false));
     }, [slug]);
+
+    // Search-friendly title, description and Product structured data (prices in USD, as stored).
+    const offers = product?.offers || [];
+    const totals = offers.map((o) => o.total);
+    const storeNames = offers.map((o) => o.store_name);
+    useSeo(
+        product
+            ? {
+                title: `${product.title} price comparison`,
+                description: offers.length
+                    ? `${product.title}: compare ${offers.length} store${offers.length === 1 ? "" : "s"} (${storeNames.slice(0, 4).join(", ")}). Cheapest total from $${Math.min(...totals).toFixed(2)} with delivery included.`
+                    : `${product.title} prices compared across online stores on Tally.`,
+                path: `/product/${product.slug}`,
+                image: product.images?.[0],
+                type: "product",
+                jsonLd: {
+                    "@context": "https://schema.org",
+                    "@type": "Product",
+                    name: product.title,
+                    description: product.description || undefined,
+                    image: product.images?.length ? product.images : undefined,
+                    category: product.category,
+                    url: `${SITE_URL}/product/${product.slug}`,
+                    ...(offers.length
+                        ? {
+                            offers: {
+                                "@type": "AggregateOffer",
+                                priceCurrency: "USD",
+                                lowPrice: Math.min(...totals).toFixed(2),
+                                highPrice: Math.max(...totals).toFixed(2),
+                                offerCount: offers.length,
+                            },
+                        }
+                        : {}),
+                },
+            }
+            : { title: loading ? "Loading product" : "Product not found", noindex: !loading }
+    );
 
     const handleBuy = async (offerId) => {
         try {
@@ -107,6 +147,10 @@ export default function ProductDetailPage() {
                                 >
                                     Buy Now <ExternalLink className="w-4 h-4 ml-2" />
                                 </Button>
+                                <p className="text-[11px] text-muted-foreground mt-3">
+                                    Opens {lowest.store_name}. We may earn a commission at no extra cost to you.{" "}
+                                    <Link to="/affiliate-disclosure" className="underline underline-offset-2">How this works</Link>
+                                </p>
                             </div>
                         )}
                     </div>

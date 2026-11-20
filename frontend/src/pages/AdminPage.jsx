@@ -15,8 +15,10 @@ import { toast } from "sonner";
 import { Trash2, Plus, ShieldCheck, LogOut, Pencil } from "lucide-react";
 import { adminApi, fetchProducts, fetchStores } from "../lib/api";
 import { StoresPanel, OffersPanel } from "../components/admin/AffiliatePanels";
+import { useSeo } from "../hooks/useSeo";
 
 export default function AdminPage() {
+    useSeo({ title: "Admin", noindex: true });
     const [token, setToken] = useState(() => localStorage.getItem("tally-admin") || "");
     const [authed, setAuthed] = useState(false);
     const [products, setProducts] = useState([]);

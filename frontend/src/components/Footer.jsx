@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { Logo } from "./Logo";
+import { AMAZON_STATEMENT } from "../pages/CompanyPages";
 
 const cols = [
     {
@@ -15,17 +16,17 @@ const cols = [
     {
         title: "Company",
         links: [
-            { to: "/", label: "About" },
-            { to: "/", label: "Contact" },
+            { to: "/about", label: "About" },
+            { to: "/contact", label: "Contact" },
             { to: "/admin", label: "Admin", testid: "footer-admin-link" },
         ],
     },
     {
         title: "Legal",
         links: [
-            { to: "/", label: "Privacy" },
-            { to: "/", label: "Terms" },
-            { to: "/", label: "Cookies" },
+            { to: "/privacy", label: "Privacy" },
+            { to: "/terms", label: "Terms" },
+            { to: "/affiliate-disclosure", label: "Affiliate disclosure" },
         ],
     },
 ];
@@ -57,7 +58,11 @@ export const Footer = () => (
             </div>
             <div className="pt-6 border-t border-border text-xs text-muted-foreground flex flex-col sm:flex-row justify-between gap-2">
                 <p>&copy; {new Date().getFullYear()} Tally</p>
-                <p>Prices and availability can change on store sites after we last checked.</p>
+                <p className="sm:text-right">
+                    Some links earn us a commission at no cost to you. {AMAZON_STATEMENT}
+                    <br />
+                    Prices and availability can change on store sites after we last checked.
+                </p>
             </div>
         </div>
     </footer>

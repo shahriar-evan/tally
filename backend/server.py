@@ -1,5 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Header, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response, PlainTextResponse
+from xml.sax.saxutils import escape as xml_escape
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -719,6 +720,52 @@ async def seed_data():
 
 
 app.include_router(api_router)
+
+
+# ---------- SEO: sitemap and robots.txt ----------
+# Served at /sitemap.xml and /robots.txt (Vercel rewrites them here) and under /api for local testing.
+CATEGORY_SLUGS = ["electronics", "fashion", "accessories", "digital"]
+STATIC_PAGES = ["/", "/search", "/about", "/contact", "/privacy", "/terms", "/affiliate-disclosure"]
+
+
+def site_base(request: Request) -> str:
+    env = os.environ.get("SITE_URL")
+    if env:
+        return env.rstrip("/")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "localhost")
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{proto}://{host}"
+
+
+async def sitemap(request: Request):
+    base = site_base(request)
+    entries = [(p, None) for p in STATIC_PAGES]
+    entries += [(f"/search?category={c}", None) for c in CATEGORY_SLUGS]
+    try:
+        async for p in db.products.find({}, {"_id": 0, "slug": 1, "created_at": 1}):
+            entries.append((f"/product/{p['slug']}", (p.get("created_at") or "")[:10] or None))
+    except Exception:
+        logger.exception("Sitemap: couldn't load products")
+    rows = []
+    for path, lastmod in entries:
+        row = f"  <url><loc>{xml_escape(base + path)}</loc>"
+        if lastmod:
+            row += f"<lastmod>{lastmod}</lastmod>"
+        rows.append(row + "</url>")
+    xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(rows) + "\n</urlset>\n"
+    return Response(content=xml, media_type="application/xml")
+
+
+async def robots(request: Request):
+    base = site_base(request)
+    body = f"User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: {base}/sitemap.xml\n"
+    return PlainTextResponse(body)
+
+
+for _path in ("/sitemap.xml", "/api/sitemap.xml"):
+    app.add_api_route(_path, sitemap, methods=["GET"], include_in_schema=False)
+for _path in ("/robots.txt", "/api/robots.txt"):
+    app.add_api_route(_path, robots, methods=["GET"], include_in_schema=False)
 
 app.add_middleware(
     CORSMiddleware,
