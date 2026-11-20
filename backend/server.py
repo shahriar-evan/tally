@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Header, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Query, Request
 from fastapi.responses import RedirectResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -16,9 +16,13 @@ from datetime import datetime, timezone
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# Missing MONGO_URL no longer crashes the whole API: routes that don't touch the
+# database (like /api/geo) keep working, and DB calls fail fast instead of hanging.
+mongo_url = os.environ.get('MONGO_URL')
+if not mongo_url:
+    logging.getLogger(__name__).error("MONGO_URL is not set; database routes will fail")
+client = AsyncIOMotorClient(mongo_url or "mongodb://localhost:27017", serverSelectionTimeoutMS=8000)
+db = client[os.environ.get('DB_NAME') or 'tally']
 
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')  # required; admin routes stay locked without it
 
@@ -297,6 +301,14 @@ async def enrich_product(p: dict, include_offers: bool = False) -> dict:
 @api_router.get("/")
 async def root():
     return {"message": "Tally API", "version": "1.0"}
+
+
+@api_router.get("/geo")
+async def geo(request: Request):
+    """Visitor's country from the hosting edge (Vercel or Cloudflare), used to pick a default currency."""
+    country = request.headers.get("x-vercel-ip-country") or request.headers.get("cf-ipcountry")
+    country = country.upper() if country and len(country) == 2 and country.isalpha() else None
+    return {"country": country}
 
 
 @api_router.get("/categories")
@@ -742,7 +754,7 @@ _seeded = False
 @app.middleware("http")
 async def ensure_seeded(request, call_next):
     global _seeded
-    if not _seeded and request.url.path.startswith("/api"):
+    if not _seeded and request.url.path.startswith("/api") and request.url.path != "/api/geo":
         try:
             await seed_data()
             await migrate_links()

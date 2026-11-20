@@ -1,5 +1,5 @@
 // Tally service worker — minimal app-shell + runtime cache
-const CACHE = "tally-v2";
+const CACHE = "tally-v3";
 const SHELL = ["/", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -32,19 +32,20 @@ self.addEventListener("fetch", (event) => {
         return;
     }
 
-    // For static assets: cache-first
-    event.respondWith(
-        caches.match(request).then((cached) =>
-            cached ||
-            fetch(request)
-                .then((resp) => {
-                    if (resp && resp.status === 200 && resp.type === "basic") {
-                        const copy = resp.clone();
-                        caches.open(CACHE).then((c) => c.put(request, copy));
-                    }
-                    return resp;
-                })
-                .catch(() => cached)
-        )
-    );
+    const save = (resp) => {
+        if (resp && resp.status === 200 && resp.type === "basic") {
+            const copy = resp.clone();
+            caches.open(CACHE).then((c) => c.put(request, copy));
+        }
+        return resp;
+    };
+
+    // Build files with a content hash in the name never change: cache-first.
+    if (/^\/static\/.+\.[0-9a-f]{8}\./.test(url.pathname)) {
+        event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then(save)));
+        return;
+    }
+
+    // Everything else (icons, manifest, unhashed files): network-first so updates show up.
+    event.respondWith(fetch(request).then(save).catch(() => caches.match(request)));
 });
