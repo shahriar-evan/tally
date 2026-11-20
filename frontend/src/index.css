@@ -1,0 +1,132 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: 'Geist', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+    font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+    letter-spacing: -0.025em;
+}
+
+.font-mono, .tabular { font-variant-numeric: tabular-nums; }
+
+@layer base {
+    :root {
+        --background: 40 33% 96%;
+        --foreground: 30 17% 8%;
+        --card: 0 0% 100%;
+        --card-foreground: 30 17% 8%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 30 17% 8%;
+        --primary: 8 77% 54%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 38 26% 91%;
+        --secondary-foreground: 30 17% 8%;
+        --muted: 38 26% 91%;
+        --muted-foreground: 30 7% 38%;
+        --accent: 152 55% 30%;
+        --accent-foreground: 0 0% 100%;
+        --destructive: 0 72% 48%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 36 18% 84%;
+        --input: 36 18% 84%;
+        --ring: 8 77% 54%;
+        --radius: 0.5rem;
+    }
+    .dark {
+        --background: 30 9% 7%;
+        --foreground: 40 25% 93%;
+        --card: 30 7% 10%;
+        --card-foreground: 40 25% 93%;
+        --popover: 30 7% 10%;
+        --popover-foreground: 40 25% 93%;
+        --primary: 9 82% 60%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 30 6% 14%;
+        --secondary-foreground: 40 25% 93%;
+        --muted: 30 6% 14%;
+        --muted-foreground: 35 8% 62%;
+        --accent: 150 45% 52%;
+        --accent-foreground: 30 9% 7%;
+        --destructive: 0 63% 50%;
+        --destructive-foreground: 40 25% 93%;
+        --border: 30 6% 20%;
+        --input: 30 6% 20%;
+        --ring: 9 82% 60%;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
+    ::selection { background: hsl(var(--primary) / 0.2); }
+}
+
+/*
+ * Legacy utility names kept so every page picks up the new look.
+ * They are now flat, solid styles: no gradients, glass or glows.
+ */
+@layer utilities {
+    .glass {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--border));
+    }
+    .glass-strong {
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--border));
+    }
+    .text-gradient {
+        color: hsl(var(--primary));
+    }
+    .btn-gradient {
+        background: hsl(var(--primary));
+        color: hsl(var(--primary-foreground));
+        @apply font-medium transition-colors duration-150;
+    }
+    .btn-gradient:hover {
+        background: hsl(var(--primary) / 0.9);
+    }
+    .btn-ink {
+        background: hsl(var(--foreground));
+        color: hsl(var(--background));
+        @apply font-medium transition-colors duration-150;
+    }
+    .btn-ink:hover { background: hsl(var(--foreground) / 0.85); }
+    .bg-aurora { background-image: none; }
+    .bg-paper-grid {
+        background-image:
+            linear-gradient(hsl(var(--border) / 0.55) 1px, transparent 1px),
+            linear-gradient(90deg, hsl(var(--border) / 0.55) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: linear-gradient(to bottom, black 30%, transparent 95%);
+    }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb {
+        background: hsl(var(--border));
+        border-radius: 3px;
+    }
+    .animate-fade-up { animation: fadeUp 0.45s cubic-bezier(.2,.7,.3,1) both; }
+    @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fadeIn 0.4s ease-out both; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .animate-float { animation: none; }
+    @media (prefers-reduced-motion: reduce) {
+        .animate-fade-up, .animate-fade-in { animation: none; }
+    }
+}
+
+@layer base {
+    [data-debug-wrapper="true"] { display: contents !important; }
+}

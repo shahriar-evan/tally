@@ -1,0 +1,17 @@
+{
+  "name": "Tally — Every store, one total.",
+  "short_name": "Tally",
+  "description": "Compare prices across stores worldwide, delivery included.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F7F4EF",
+  "theme_color": "#17140F",
+  "categories": ["shopping", "lifestyle", "utilities"],
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" }
+  ]
+}
