@@ -1,0 +1,12 @@
+# Local-only files never go to Vercel; production settings live in Vercel env vars.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+backend/venv
+node_modules
+frontend/node_modules
+frontend/build
+.claude
