@@ -19,10 +19,16 @@ load_dotenv(ROOT_DIR / '.env')
 
 # Missing MONGO_URL no longer crashes the whole API: routes that don't touch the
 # database (like /api/geo) keep working, and DB calls fail fast instead of hanging.
+# Without MONGO_URL the API runs on an in-memory database filled with the sample
+# catalogue, so the site still shows products. Admin edits and clicks are not kept
+# between restarts in that mode; set MONGO_URL to store them for real.
 mongo_url = os.environ.get('MONGO_URL')
-if not mongo_url:
-    logging.getLogger(__name__).error("MONGO_URL is not set; database routes will fail")
-client = AsyncIOMotorClient(mongo_url or "mongodb://localhost:27017", serverSelectionTimeoutMS=8000)
+if mongo_url:
+    client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=8000)
+else:
+    from mongomock_motor import AsyncMongoMockClient
+    logging.getLogger(__name__).warning("MONGO_URL is not set; using an in-memory sample database")
+    client = AsyncMongoMockClient()
 db = client[os.environ.get('DB_NAME') or 'tally']
 
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN')  # required; admin routes stay locked without it
